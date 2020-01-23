@@ -7,7 +7,25 @@ defmodule PowSessionToolkit.MixProject do
       version: "0.1.0",
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      description: """
+      Session management implementation for POW
+      """,
+      package: [
+        licenses: ["apache-2.0"],
+        links: %{github: "https://github.com/weareyipyip/Pow-Session-Toolkit"},
+        source_url: "https://github.com/weareyipyip/Pow-Session-Toolkit"
+      ],
+      source_url: "https://github.com/weareyipyip/Pow-Session-Toolkit",
+      name: "Pow Session Toolkit",
+      docs: [
+        source_ref: "master",
+        extras: ["./README.md"],
+        main: "readme"
+      ],
+      dialyzer: [
+        plt_add_apps: []
+      ]
     ]
   end
 
@@ -21,8 +39,13 @@ defmodule PowSessionToolkit.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      # meta / dev dependencies
+      {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.0.0-rc.6", only: [:dev, :test], runtime: false},
+
+      # application dependencies
+      {:plug, "~> 1.8"},
+      {:pow, ">= 1.0.15"}
     ]
   end
 end
