@@ -1,0 +1,9 @@
+{
+    "files.exclude": {
+        "deps/**": true,
+        "_build/**": true,
+    },
+    "[yaml]": {
+        "editor.formatOnSave": false
+    }
+}
