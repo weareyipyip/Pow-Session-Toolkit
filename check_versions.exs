@@ -5,8 +5,8 @@
 # Read the readme
 readme = File.read!("README.md")
 
-# capture 0.3.0-alpha from {:phoenix_api_toolkit, "~> 0.3.0-alpha"}
-readme_version_regex = ~r/:phoenix_api_toolkit,\s\"~>\s(?<version>.*)\"/
+# capture 0.3.0-alpha from {:pow_session_toolkit, "~> 0.3.0-alpha"}
+readme_version_regex = ~r/:pow_session_toolkit,\s\"~>\s(?<version>.*)\"/
 
 %{"version" => readme_version} =
   Regex.named_captures(readme_version_regex, readme, [:all_but_first])

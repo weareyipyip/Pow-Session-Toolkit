@@ -45,7 +45,8 @@ defmodule PowSessionToolkit.MixProject do
 
       # application dependencies
       {:plug, "~> 1.8"},
-      {:pow, ">= 1.0.15"}
+      {:pow, ">= 1.0.15"},
+      {:jason, "~> 1.1"}
     ]
   end
 end
