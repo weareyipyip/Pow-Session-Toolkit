@@ -12,6 +12,7 @@ defmodule PowSessionToolkit.MixProject do
       Session management implementation for POW
       """,
       package: [
+        name: "pow_session_toolkit",
         licenses: ["apache-2.0"],
         links: %{github: "https://github.com/weareyipyip/Pow-Session-Toolkit"},
         source_url: "https://github.com/weareyipyip/Pow-Session-Toolkit"
