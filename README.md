@@ -10,7 +10,7 @@ by adding `pow_session_toolkit` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:pow_session_toolkit, "~> 0.1.1"}
+    {:pow_session_toolkit, "~> 0.1.2"}
   ]
 end
 ```
