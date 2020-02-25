@@ -107,14 +107,16 @@ defmodule PowSessionToolkit.SessionPlugs do
   @impl true
   @spec fetch(Plug.Conn.t(), Config.t()) :: {Plug.Conn.t(), map() | nil}
   def fetch(conn, config) do
-    proc_conf = process_config(config)
+    toolkit_conf = Pow.Config.get(config, :pow_session_toolkit)
+    user_struct = Pow.Config.get(config, :user)
 
-    with {sig_transport, token} <- get_token(conn, access_sig_cookie_name(proc_conf)),
+    with {sig_transport, token} <- get_token(conn, access_sig_cookie_name(toolkit_conf)),
          {:ok, %{uid: user_id, tst: exp_sig_trans, sid: session_id, exp: expires_at} = payload} <-
-           Token.verify(conn, access_salt(proc_conf), token, access_verify_opts(proc_conf)),
+           Token.verify(conn, access_salt(toolkit_conf), token, access_verify_opts(toolkit_conf)),
          {:transport_matches, true} <- {:transport_matches, sig_transport == exp_sig_trans},
          {:session_expired, false} <- session_expired?(session_id, expires_at, config) do
-      {put_private(conn, @private_access_token_payload_key, payload), %{id: user_id}}
+      {put_private(conn, @private_access_token_payload_key, payload),
+       struct(user_struct, id: user_id)}
     else
       nil ->
         auth_error(conn, "bearer token not found")
@@ -162,7 +164,7 @@ defmodule PowSessionToolkit.SessionPlugs do
   @impl true
   @spec create(Plug.Conn.t(), map(), Config.t()) :: {Plug.Conn.t(), map()}
   def create(conn, %{id: uid} = user, config) do
-    proc_conf = process_config(config)
+    toolkit_conf = Pow.Config.get(config, :pow_session_toolkit)
     now = System.system_time(:second)
 
     # the refresh token id is renewed every time so that refresh tokens are single-use only
@@ -170,7 +172,7 @@ defmodule PowSessionToolkit.SessionPlugs do
 
     # update the existing session (as set by &refresh/2) or create a new one
     session = %{
-      (Session.get_from_conn(conn) || new_session(conn, proc_conf, now, uid))
+      (Session.get_from_conn(conn) || new_session(conn, toolkit_conf, now, uid))
       | refresh_token_id: rtid,
         refreshed_at: now,
         last_known_ip: conn.remote_ip |> :inet.ntoa() |> to_string()
@@ -182,16 +184,16 @@ defmodule PowSessionToolkit.SessionPlugs do
     tst = session.token_signature_transport
     refresh_payload = %{id: rtid, uid: uid, sid: session.id, tst: tst, exp: session.expires_at}
     access_payload = %{uid: uid, sid: session.id, tst: tst, exp: session.expires_at}
-    refresh_opts = Keyword.put(refresh_opts(proc_conf), :signed_at, now)
-    refresh_token = Token.sign(conn, refresh_salt(proc_conf), refresh_payload, refresh_opts)
-    refresh_ttl = calc_ttl(session, now, refresh_ttl(proc_conf))
-    access_opts = Keyword.put(access_opts(proc_conf), :signed_at, now)
-    access_token = Token.sign(conn, access_salt(proc_conf), access_payload, access_opts)
-    access_ttl = calc_ttl(session, now, access_ttl(proc_conf))
+    refresh_opts = Keyword.put(refresh_opts(toolkit_conf), :signed_at, now)
+    refresh_token = Token.sign(conn, refresh_salt(toolkit_conf), refresh_payload, refresh_opts)
+    refresh_ttl = calc_ttl(session, now, refresh_ttl(toolkit_conf))
+    access_opts = Keyword.put(access_opts(toolkit_conf), :signed_at, now)
+    access_token = Token.sign(conn, access_salt(toolkit_conf), access_payload, access_opts)
+    access_ttl = calc_ttl(session, now, access_ttl(toolkit_conf))
 
     conn =
       conn
-      |> add_tokens(proc_conf, tst, access_token, refresh_token, access_ttl, refresh_ttl)
+      |> add_tokens(toolkit_conf, tst, access_token, refresh_token, access_ttl, refresh_ttl)
       |> put_privates([
         {@private_session_key, session},
         {@private_access_token_expiration_key, now + access_ttl},
@@ -217,13 +219,19 @@ defmodule PowSessionToolkit.SessionPlugs do
   @impl true
   @spec delete(Plug.Conn.t(), Config.t()) :: Plug.Conn.t()
   def delete(conn, config) do
-    proc_conf = process_config(config)
+    toolkit_conf = Pow.Config.get(config, :pow_session_toolkit)
     %{sid: session_id} = conn.private[@private_access_token_payload_key]
     session_store(config).delete(config, session_id)
 
     conn
-    |> delete_resp_cookie(refresh_sig_cookie_name(proc_conf), refresh_sig_cookie_opts(proc_conf))
-    |> delete_resp_cookie(access_sig_cookie_name(proc_conf), access_sig_cookie_opts(proc_conf))
+    |> delete_resp_cookie(
+      refresh_sig_cookie_name(toolkit_conf),
+      refresh_sig_cookie_opts(toolkit_conf)
+    )
+    |> delete_resp_cookie(
+      access_sig_cookie_name(toolkit_conf),
+      access_sig_cookie_opts(toolkit_conf)
+    )
   end
 
   @doc """
@@ -238,24 +246,29 @@ defmodule PowSessionToolkit.SessionPlugs do
   """
   @spec refresh(Plug.Conn.t(), Config.t()) :: {Plug.Conn.t(), map() | nil}
   def refresh(conn, config) do
-    proc_conf = process_config(config)
+    toolkit_conf = Pow.Config.get(config, :pow_session_toolkit)
 
     with {:token, {sig_transport, token}} <-
-           {:token, get_token(conn, refresh_sig_cookie_name(proc_conf))},
+           {:token, get_token(conn, refresh_sig_cookie_name(toolkit_conf))},
          {:ok, %{uid: uid, sid: sid, id: rtid, tst: tst, exp: exp} = payload} <-
-           Token.verify(conn, refresh_salt(proc_conf), token, refresh_verify_opts(proc_conf)),
+           Token.verify(
+             conn,
+             refresh_salt(toolkit_conf),
+             token,
+             refresh_verify_opts(toolkit_conf)
+           ),
          {:transport_matches, true} <- {:transport_matches, sig_transport == tst},
          {:session_expired, false} <- session_expired?(sid, exp, config),
          {:session, %Session{} = session} <- {:session, session_store(config).get(config, sid)},
          {:token_fresh, true} <- {:token_fresh, session.refresh_token_id == rtid},
-         %{id: _} = user <- Pow.Operations.get_by([id: uid], proc_conf),
+         %{id: _} = user <- Pow.Operations.get_by([id: uid], toolkit_conf),
          {:status, "active"} <- {:status, user.status} do
       conn
       |> put_privates([
         {@private_session_key, session},
         {@private_refresh_token_payload_key, payload}
       ])
-      |> create(user, proc_conf)
+      |> create(user, toolkit_conf)
     else
       {:token, nil} ->
         auth_error(conn, "refresh token not found")

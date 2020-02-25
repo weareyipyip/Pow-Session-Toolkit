@@ -21,12 +21,27 @@ be found at [https://hexdocs.pm/pow_session_toolkit](https://hexdocs.pm/pow_sess
 
 ## Guide
 
-### Configure
+### Configuration
 
+Configure pow itself as usual, for example:
 
-config :pow_session_toolkit, :pow,
+```
+config :my_otp_app, :pow,
   user: MyApp.DB.User,
   repo: MyApp.Repo,
   users_context: MyApp.DB.Users,
   cache_store_backend: Pow.Store.Backend.MnesiaCache
+```
 
+Add a key to the standard pow config called `:pow_session_toolkit` and add the configuration values as specified in [session_plugs.ex](./lib/pow_sessions_toolkit/session_plugs.ex) there:
+
+```
+config :my_otp_app, :pow,
+  user: MyApp.DB.User,
+  repo: MyApp.Repo,
+  users_context: MyApp.DB.Users,
+  cache_store_backend: Pow.Store.Backend.MnesiaCache,
+  pow_session_toolkit: [
+    access_token_ttl: 3600
+  ]
+```
