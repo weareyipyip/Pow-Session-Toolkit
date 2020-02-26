@@ -106,15 +106,16 @@ defmodule PowSessionToolkit.SessionPlugs do
   """
   @impl true
   @spec fetch(Plug.Conn.t(), Config.t()) :: {Plug.Conn.t(), map() | nil}
-  def fetch(conn, config) do
-    toolkit_conf = Pow.Config.get(config, :pow_session_toolkit)
-    user_struct = Pow.Config.get(config, :user)
+  def fetch(conn, pow_config) do
+    toolkit_conf = Pow.Config.get(pow_config, :pow_session_toolkit)
+    store = session_store(toolkit_conf)
+    user_struct = Pow.Config.get(pow_config, :user)
 
     with {sig_transport, token} <- get_token(conn, access_sig_cookie_name(toolkit_conf)),
          {:ok, %{uid: user_id, tst: exp_sig_trans, sid: session_id, exp: expires_at} = payload} <-
            Token.verify(conn, access_salt(toolkit_conf), token, access_verify_opts(toolkit_conf)),
          {:transport_matches, true} <- {:transport_matches, sig_transport == exp_sig_trans},
-         {:session_expired, false} <- session_expired?(session_id, expires_at, config) do
+         {:session_expired, false} <- session_expired?(session_id, expires_at, store, pow_config) do
       {put_private(conn, @private_access_token_payload_key, payload),
        struct(user_struct, id: user_id)}
     else
@@ -163,8 +164,9 @@ defmodule PowSessionToolkit.SessionPlugs do
   """
   @impl true
   @spec create(Plug.Conn.t(), map(), Config.t()) :: {Plug.Conn.t(), map()}
-  def create(conn, %{id: uid} = user, config) do
-    toolkit_conf = Pow.Config.get(config, :pow_session_toolkit)
+  def create(conn, %{id: uid} = user, pow_config) do
+    toolkit_conf = Pow.Config.get(pow_config, :pow_session_toolkit)
+    store = session_store(toolkit_conf)
     now = System.system_time(:second)
 
     # the refresh token id is renewed every time so that refresh tokens are single-use only
@@ -178,7 +180,7 @@ defmodule PowSessionToolkit.SessionPlugs do
         last_known_ip: conn.remote_ip |> :inet.ntoa() |> to_string()
     }
 
-    session_store(config).put(config, session.id, session)
+    store.put(pow_config, session.id, session)
 
     # create access and refresh tokens and put them on the conn
     tst = session.token_signature_transport
@@ -218,10 +220,11 @@ defmodule PowSessionToolkit.SessionPlugs do
   """
   @impl true
   @spec delete(Plug.Conn.t(), Config.t()) :: Plug.Conn.t()
-  def delete(conn, config) do
-    toolkit_conf = Pow.Config.get(config, :pow_session_toolkit)
+  def delete(conn, pow_config) do
+    toolkit_conf = Pow.Config.get(pow_config, :pow_session_toolkit)
+    store = session_store(toolkit_conf)
     %{sid: session_id} = conn.private[@private_access_token_payload_key]
-    session_store(config).delete(config, session_id)
+    store.delete(pow_config, session_id)
 
     conn
     |> delete_resp_cookie(
@@ -245,8 +248,9 @@ defmodule PowSessionToolkit.SessionPlugs do
   server-side session by `create/2` to enforce this.
   """
   @spec refresh(Plug.Conn.t(), Config.t()) :: {Plug.Conn.t(), map() | nil}
-  def refresh(conn, config) do
-    toolkit_conf = Pow.Config.get(config, :pow_session_toolkit)
+  def refresh(conn, pow_config) do
+    toolkit_conf = Pow.Config.get(pow_config, :pow_session_toolkit)
+    store = session_store(toolkit_conf)
 
     with {:token, {sig_transport, token}} <-
            {:token, get_token(conn, refresh_sig_cookie_name(toolkit_conf))},
@@ -258,8 +262,8 @@ defmodule PowSessionToolkit.SessionPlugs do
              refresh_verify_opts(toolkit_conf)
            ),
          {:transport_matches, true} <- {:transport_matches, sig_transport == tst},
-         {:session_expired, false} <- session_expired?(sid, exp, config),
-         {:session, %Session{} = session} <- {:session, session_store(config).get(config, sid)},
+         {:session_expired, false} <- session_expired?(sid, exp, store, pow_config),
+         {:session, %Session{} = session} <- {:session, store.get(pow_config, sid)},
          {:token_fresh, true} <- {:token_fresh, session.refresh_token_id == rtid},
          %{id: _} = user <- Pow.Operations.get_by([id: uid], toolkit_conf),
          {:status, "active"} <- {:status, user.status} do
@@ -314,12 +318,12 @@ defmodule PowSessionToolkit.SessionPlugs do
   defp calc_ttl(%{expires_at: nil}, _now, ttl), do: ttl
   defp calc_ttl(%{expires_at: timestamp}, now, ttl), do: min(timestamp - now, ttl)
 
-  defp session_expired?(session_id, expires_at, config) do
+  defp session_expired?(session_id, expires_at, store, pow_config) do
     # this also works if expires_at is an atom like nil, because of https://hexdocs.pm/elixir/master/operators.html#term-ordering
     if expires_at > System.system_time(:second) do
       {:session_expired, false}
     else
-      session_store(config).delete(config, session_id)
+      store.delete(pow_config, session_id)
       {:session_expired, true}
     end
   end
