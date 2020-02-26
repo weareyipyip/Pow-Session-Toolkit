@@ -265,14 +265,14 @@ defmodule PowSessionToolkit.SessionPlugs do
          {:session_expired, false} <- session_expired?(sid, exp, store, pow_config),
          {:session, %Session{} = session} <- {:session, store.get(pow_config, sid)},
          {:token_fresh, true} <- {:token_fresh, session.refresh_token_id == rtid},
-         %{id: _} = user <- Pow.Operations.get_by([id: uid], toolkit_conf),
+         %{id: _} = user <- Pow.Operations.get_by([id: uid], pow_config),
          {:status, "active"} <- {:status, user.status} do
       conn
       |> put_privates([
         {@private_session_key, session},
         {@private_refresh_token_payload_key, payload}
       ])
-      |> create(user, toolkit_conf)
+      |> create(user, pow_config)
     else
       {:token, nil} ->
         auth_error(conn, "refresh token not found")
@@ -328,13 +328,25 @@ defmodule PowSessionToolkit.SessionPlugs do
     end
   end
 
-  defp add_tokens(conn, config, :cookie, access_token, refresh_token, access_ttl, refresh_ttl) do
+  defp add_tokens(
+         conn,
+         toolkit_conf,
+         :cookie,
+         access_token,
+         refresh_token,
+         access_ttl,
+         refresh_ttl
+       ) do
     [at_header, at_payload, at_signature] = String.split(access_token, ".", parts: 3)
     access_token = at_header <> "." <> at_payload
     [rt_header, rt_payload, rt_signature] = String.split(refresh_token, ".", parts: 3)
     refresh_token = rt_header <> "." <> rt_payload
-    access_sig_cookie_opts = Keyword.put(access_sig_cookie_opts(config), :max_age, access_ttl)
-    refresh_sig_cookie_opts = Keyword.put(refresh_sig_cookie_opts(config), :max_age, refresh_ttl)
+
+    access_sig_cookie_opts =
+      Keyword.put(access_sig_cookie_opts(toolkit_conf), :max_age, access_ttl)
+
+    refresh_sig_cookie_opts =
+      Keyword.put(refresh_sig_cookie_opts(toolkit_conf), :max_age, refresh_ttl)
 
     conn
     |> put_privates([
@@ -342,12 +354,12 @@ defmodule PowSessionToolkit.SessionPlugs do
       {@private_refresh_token_key, refresh_token}
     ])
     |> put_resp_cookie(
-      access_sig_cookie_name(config),
+      access_sig_cookie_name(toolkit_conf),
       "." <> at_signature,
       access_sig_cookie_opts
     )
     |> put_resp_cookie(
-      refresh_sig_cookie_name(config),
+      refresh_sig_cookie_name(toolkit_conf),
       "." <> rt_signature,
       refresh_sig_cookie_opts
     )
@@ -390,14 +402,14 @@ defmodule PowSessionToolkit.SessionPlugs do
   defp auth_header_to_token(<<"Bearer: "::binary, token::binary>>), do: token
   defp auth_header_to_token(_), do: nil
 
-  defp new_session(conn, config, timestamp, user_id) do
+  defp new_session(conn, toolkit_conf, timestamp, user_id) do
     %Session{
       created_at: timestamp,
       id: Pow.UUID.generate(),
       user_id: user_id,
       token_signature_transport: Map.fetch!(conn.private, @private_token_signature_transport_key),
       expires_at:
-        case conn.private[@private_session_ttl_key] || config[:session_ttl] do
+        case conn.private[@private_session_ttl_key] || toolkit_conf[:session_ttl] do
           ttl when is_integer(ttl) -> ttl + timestamp
           _ -> nil
         end
