@@ -1,5 +1,4 @@
 defmodule PowSessionToolkit.Config do
-  def process_config(config), do: Pow.Config.get(config, :pow_session_toolkit)
   def access_salt(config), do: config[:access_token_salt] || "access_token"
   def access_ttl(config), do: config[:access_token_ttl]
   def access_opts(config), do: [key_digest: config[:access_token_key_digest] || :sha256]
